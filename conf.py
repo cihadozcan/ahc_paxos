@@ -10,10 +10,10 @@ sys.path.insert(0, os.path.abspath('.'))
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'Distributed Algorithm on AHCv2: distalgname'
-copyright = '2024, Your Name'
-author = 'Your Name'
-release = 'V1.0.0'
+project = 'Distributed Algorithm on AHCv2: paxos'
+copyright = '2024, Cihad Özcan'
+author = 'Cihad Özcan'
+release = 'V0.0.1'
 version = release
 
 # -- General configuration ---------------------------------------------------
