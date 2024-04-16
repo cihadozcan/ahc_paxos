@@ -39,9 +39,8 @@ class Process:
         self.received_promises = set()
         self.received_acceptances = set()
 
-
-def transition_to_learner(self):
-    self.process_status = ProcessStatus.LEARNER
+    def transition_to_learner(self):
+        self.process_status = ProcessStatus.LEARNER
 
     def receive_message(self, message):
         if message.is_decision_message():
