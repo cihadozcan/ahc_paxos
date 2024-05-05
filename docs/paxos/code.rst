@@ -5,6 +5,9 @@ Code Documentation
    :toctree: generated
    :recursive:
 
-   Snapshot.Snapshot
-   Snapshot.ChandyLamportSnapshot
-   Snapshot.LaiYangSnapshot
+   paxos.paxos_node
+   raft.raft_node
+   paxos.client_node
+   paxos.heartbeat_node
+   paxos.sleep_trigger
+   paxos.experiment
