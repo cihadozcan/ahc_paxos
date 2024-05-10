@@ -25,6 +25,7 @@ class SleepTriggerNode(GenericModel):
         self.number_of_nodes = numberofnodes
 
     def on_init(self, eventobj: Event):
+        time.sleep(5)
         while True:
             time.sleep(SLEEP_TRIGGER_INTERVAL)
             payload = {'target_node_ids': self.get_random_node_ids(NUMBER_OF_NODES_TO_SLEEP), 'sleep_leader': SLEEP_LEADER, 'time_to_sleep': SLEEP_TIME}

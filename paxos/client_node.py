@@ -24,12 +24,13 @@ class ClientNode(GenericModel):
         self.node_id = componentname + '_' + str(componentinstancenumber)
 
         self.eventhandlers[PaxosEventTypes.CLIENT_RESPONSE] = self.on_client_response
+        self.eventhandlers[PaxosEventTypes.CLIENT_REQUEST] = self.on_client_request
 
     def on_init(self, eventobj: Event):
         first_command = Command(1, CommandTypes.ADD, 33)
         self.last_command = first_command
         first_client_request_event = Event(self, PaxosEventTypes.CLIENT_REQUEST, self.last_command)
-        self.send_up(first_client_request_event)
+        self.send_self(first_client_request_event)
 
     def on_client_response(self, eventobj: Event):
         print(f"Client {self.node_id} received response: {eventobj.eventcontent.payload}")
@@ -41,7 +42,8 @@ class ClientNode(GenericModel):
             client_request_event = Event(self, PaxosEventTypes.CLIENT_REQUEST, self.last_command)
             self.send_up(client_request_event)
         else:
-            logger.error(f"Client {self.node_id} received REPEATED response: for command id: {eventobj.eventcontent.payload['command'].id}")
+            logger.critical(
+                f"Client {self.node_id} received REPEATED response: for command id: {eventobj.eventcontent.payload['command'].id}")
             client_request_event = Event(self, PaxosEventTypes.CLIENT_REQUEST, self.last_command)
             self.send_up(client_request_event)
 
@@ -60,3 +62,8 @@ class ClientNode(GenericModel):
         logger.error(
             f"{self.node_id} APPLIED COMMAND id: {command.id}\n"
             f"{old_state_machine_value} {command.type == CommandTypes.ADD.value and '+' or '-'} {command.value} = {self.expected_state_machine_value}")
+
+    def on_client_request(self, eventobj: Event):
+        time.sleep(5)
+        logger.error(f"Client {self.node_id} sending command to upper layer")
+        self.send_up(eventobj)
