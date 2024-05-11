@@ -3,7 +3,9 @@ import random
 from adhoccomputing.Generics import *
 from adhoccomputing.GenericModel import GenericModel, GenericMessage
 
-from paxos.utils import NodeStatus, PaxosEventTypes, PaxosMessageHeader, PaxosMessageTypes, CommandTypes, Command
+from paxos.statistics import Statistics
+from paxos.utils import NodeStatus, PaxosEventTypes, PaxosMessageHeader, PaxosMessageTypes, CommandTypes, Command, \
+    ALWAYS_SLEEP_LEADER
 from paxos.log import PaxosLog, LogEntry
 
 
@@ -47,6 +49,9 @@ class PaxosNode(GenericModel):
         # Reinitialized after transitioning to candidate
         self.promises_received = set()
         self.promoted_entries = []
+
+        # To keep statistics
+        self.time_being_candidate = 0
 
         self.eventhandlers[PaxosEventTypes.PROPOSE] = self.on_propose
         self.eventhandlers[PaxosEventTypes.ACCEPT] = self.on_accept
@@ -420,13 +425,10 @@ class PaxosNode(GenericModel):
         Handles the client request received by the node. If the node is a proposer, it appends the new entry to the log
         and sends the propose message to peers. Nodes other than proposer just ignores the request.
         """
-        logger.info(
-            f"{self.node_id} received client request for command id {eventobj.eventcontent.id} while it is in {self.state} state")
         if NodeStatus.PROPOSER != self.state:
             return
         if eventobj.eventcontent.id <= self.log.entries[-1].command.id:
             return
-        logger.info(f"{self.node_id} received client request for command id {eventobj.eventcontent.id}")
         new_entry = LogEntry(self.current_term, eventobj.eventcontent, self.node_id,
                              self.commit_index + len(self.promoted_entries) + 1)
         self.promoted_entries.append(new_entry)
@@ -454,7 +456,10 @@ class PaxosNode(GenericModel):
 
     # STATE TRANSITIONS
     def transition_to_proposer(self):
-        logger.error(f"{self.node_id} is transitioning to proposer")
+        if self.current_term != self.number_of_nodes:
+            Statistics.increment_leader_changes()
+            Statistics.add_time_during_election(time.time() - self.time_being_candidate)
+        logger.error(f"{self.node_id} is transitioning to leader")
         self.state = NodeStatus.PROPOSER
         peer_ids = self.get_peer_ids()
         self.next_index = {peer_id: self.commit_index + 1 for peer_id in peer_ids}
@@ -466,6 +471,7 @@ class PaxosNode(GenericModel):
         logger.info(f"{self.node_id} is transitioning to candidate")
         self.state = NodeStatus.CANDIDATE
         self.reset_timer()
+        self.time_being_candidate = time.time()
 
     def transition_to_follower(self):
         self.state = NodeStatus.FOLLOWER
@@ -502,7 +508,11 @@ class PaxosNode(GenericModel):
         time_to_sleep = eventobj.eventcontent['time_to_sleep']
         sleep_leader = eventobj.eventcontent['sleep_leader']
         target_nodes = eventobj.eventcontent['target_node_ids']
-        if self.node_id in target_nodes:
+        if self.state == NodeStatus.PROPOSER and ALWAYS_SLEEP_LEADER:
+            logger.debug(f"Leader {self.node_id} is sleeping for {time_to_sleep} seconds")
+            time.sleep(time_to_sleep)
+            self.transition_to_follower()
+        elif self.node_id in target_nodes:
             if self.state == NodeStatus.PROPOSER and not sleep_leader:
                 non_leader_peer = self.choose_random_non_leader_peer(target_nodes)
                 payload = {'target_node_ids': non_leader_peer, 'sleep_leader': sleep_leader,
@@ -510,7 +520,7 @@ class PaxosNode(GenericModel):
                 trigger_sleep_event = Event(self, PaxosEventTypes.SLEEP_TRIGGER, payload)
                 self.send_peer(trigger_sleep_event)
             if self.state == NodeStatus.PROPOSER and sleep_leader:
-                logger.critical(f"{self.node_id} is sleeping for {time_to_sleep} seconds AS A LEADER")
+                logger.critical(f"{self.node_id} is sleeping for {time_to_sleep} seconds as a leader")
             logger.error(f"{self.node_id} is sleeping for {time_to_sleep} seconds")
             time.sleep(time_to_sleep)
             logger.critical(f"{self.node_id} is waking up from sleep with last_applied: {self.last_applied}")

@@ -4,7 +4,7 @@ import time
 from adhoccomputing.GenericModel import GenericModel
 from adhoccomputing.Generics import Event
 
-from paxos.utils import NodeStatus, PaxosEventTypes, SLEEP_TRIGGER_INTERVAL, SLEEP_LEADER, SLEEP_TIME, \
+from paxos.utils import NodeStatus, PaxosEventTypes, SLEEP_TRIGGER_INTERVAL, ALLOW_LEADER_IN_NODES_TO_SLEEP, SLEEP_TIME, \
     NUMBER_OF_NODES_TO_SLEEP
 
 
@@ -28,7 +28,7 @@ class SleepTriggerNode(GenericModel):
         time.sleep(5)
         while True:
             time.sleep(SLEEP_TRIGGER_INTERVAL)
-            payload = {'target_node_ids': self.get_random_node_ids(NUMBER_OF_NODES_TO_SLEEP), 'sleep_leader': SLEEP_LEADER, 'time_to_sleep': SLEEP_TIME}
+            payload = {'target_node_ids': self.get_random_node_ids(NUMBER_OF_NODES_TO_SLEEP), 'sleep_leader': ALLOW_LEADER_IN_NODES_TO_SLEEP, 'time_to_sleep': SLEEP_TIME}
             trigger_sleep_event = Event(self, PaxosEventTypes.SLEEP_TRIGGER, payload)
             self.send_up(trigger_sleep_event)
 
