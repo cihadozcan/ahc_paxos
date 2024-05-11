@@ -64,6 +64,5 @@ class ClientNode(GenericModel):
             f"{old_state_machine_value} {command.type == CommandTypes.ADD.value and '+' or '-'} {command.value} = {self.expected_state_machine_value}")
 
     def on_client_request(self, eventobj: Event):
-        time.sleep(5)
         logger.error(f"Client {self.node_id} sending command to upper layer")
         self.send_up(eventobj)

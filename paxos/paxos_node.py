@@ -312,22 +312,34 @@ class PaxosNode(GenericModel):
             logger.info(
                 f"{self.node_id} received propose from {payload['term']} but log does not contain an entry at prevLogIndex whose term matches prevLogTerm")
             return False
+        #
+        # if self.node_number == 2:
+        #     logger.critical(f"{self.node_id} handling propose from {payload['term']} with prevLogIndex {prev_log_index} and prevLogTerm {prev_log_term} its len is {len(self.log.entries)} and obtained entries are {[str(entry) for entry in self.log.entries]}")
+        # # If an existing entry coming after prev_log_index conflicts with a new one, delete the one from older term
+        # start_index = prev_log_index
+        # offset = 1
+        # if start_index + offset < len(self.log.entries) and self.log.entries[start_index + offset] is not None and offset < len(given_entries):
+        #     given_entry = given_entries[offset - 1]
+        #     conflicting_entry_term = self.log.entries[given_entry.index].term
+        #     if conflicting_entry_term != given_entry.term:
+        #         self.log.truncate(prev_log_index + offset)
+        #         self.log.append_entry(given_entry)
+        #     offset += 1
+        #     if offset == len(given_entries):
+        #         return True
+        # # Append new entries
+        # if self.node_number == 2:
+        #     logger.critical(f"{self.node_id} is appending entries {[str(entry) for entry in given_entries[offset - 1:]]} while having log entries {[str(entry) for entry in self.log.entries]}")
+        # self.log.append_entries(given_entries[(offset - 1):])
 
-        # If an existing entry coming after prev_log_index conflicts with a new one, delete the one from older term
-        start_index = prev_log_index
-        offset = 1
-        if start_index + offset < len(self.log.entries) and self.log.entries[start_index + offset] is not None and offset < len(given_entries):
-            given_entry = given_entries[offset - 1]
-            conflicting_entry_term = self.log.entries[given_entry.index].term
-            if conflicting_entry_term != given_entry.term:
-                self.log.truncate(prev_log_index + offset)
-                self.log.append_entry(given_entry)
-            offset += 1
-            if offset == len(given_entries):
-                return True
-        # Append new entries
-        self.log.append_entries(given_entries[(offset - 1):])
+        if prev_log_index + 1 < len(self.log.entries) and self.log.entries[prev_log_index + 1] is not None:
+            self.log.truncate(prev_log_index + 1)
 
+        # throw exception
+        if prev_log_index + 1 != given_entries[0].index:
+            raise Exception(f"prev_log_index + 1 is {prev_log_index + 1} but given_entries[0].index is {given_entries[0].index}")
+
+        self.log.append_entries(given_entries)
         # If leaderCommit > commitIndex, apply new entries to state machine and update commitIndex
         self.apply_new_entries_as_follower(leader_commit)
         return True
@@ -343,9 +355,6 @@ class PaxosNode(GenericModel):
             self.commit_index = last_applicable_entry
             for index in applicable_entries:
                 if index > self.last_applied:
-                    if self.node_number == 2:
-                        logger.critical(
-                            f"{self.node_id} is applying index {index} with command_id {self.log.entries[index].command.id} while last_applied is {self.last_applied}")
                     self.apply_command(self.log.entries[index].command)
                     self.last_applied = index
 
@@ -415,6 +424,8 @@ class PaxosNode(GenericModel):
             f"{self.node_id} received client request for command id {eventobj.eventcontent.id} while it is in {self.state} state")
         if NodeStatus.PROPOSER != self.state:
             return
+        if eventobj.eventcontent.id <= self.log.entries[-1].command.id:
+            return
         logger.info(f"{self.node_id} received client request for command id {eventobj.eventcontent.id}")
         new_entry = LogEntry(self.current_term, eventobj.eventcontent, self.node_id,
                              self.commit_index + len(self.promoted_entries) + 1)
@@ -443,14 +454,13 @@ class PaxosNode(GenericModel):
 
     # STATE TRANSITIONS
     def transition_to_proposer(self):
-        logger.info(f"{self.node_id} is transitioning to proposer")
+        logger.error(f"{self.node_id} is transitioning to proposer")
         self.state = NodeStatus.PROPOSER
         peer_ids = self.get_peer_ids()
         self.next_index = {peer_id: self.commit_index + 1 for peer_id in peer_ids}
         self.match_index = {peer: 0 for peer in peer_ids}
         self.send_heartbeat_to_peers()
-        if self.log.entries[self.last_applied].command.id != 0:
-            self.send_client_response()
+        self.send_client_response()
 
     def transition_to_candidate(self):
         logger.info(f"{self.node_id} is transitioning to candidate")
@@ -499,11 +509,12 @@ class PaxosNode(GenericModel):
                            'time_to_sleep': time_to_sleep}
                 trigger_sleep_event = Event(self, PaxosEventTypes.SLEEP_TRIGGER, payload)
                 self.send_peer(trigger_sleep_event)
-            elif self.node_number == 2:
-                logger.critical(f"{self.node_id} is sleeping for {time_to_sleep} seconds")
-                time.sleep(time_to_sleep)
-                logger.critical(f"{self.node_id} is waking up from sleep with last_applied: {self.last_applied}")
-                self.transition_to_follower()
+            if self.state == NodeStatus.PROPOSER and sleep_leader:
+                logger.critical(f"{self.node_id} is sleeping for {time_to_sleep} seconds AS A LEADER")
+            logger.error(f"{self.node_id} is sleeping for {time_to_sleep} seconds")
+            time.sleep(time_to_sleep)
+            logger.critical(f"{self.node_id} is waking up from sleep with last_applied: {self.last_applied}")
+            self.transition_to_follower()
 
     def choose_random_non_leader_peer(self, exempt_list):
         """
