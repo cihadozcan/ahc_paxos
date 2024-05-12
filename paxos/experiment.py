@@ -63,7 +63,7 @@ class Node(GenericModel):
 
 
 def main():
-    setAHCLogLevel(ERROR)
+    setAHCLogLevel(INFO)
     topo = Topology()
     topo.construct_single_node(Node, 0)
     topo.start()

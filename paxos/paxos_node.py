@@ -2,7 +2,6 @@ import random
 
 from adhoccomputing.Generics import *
 from adhoccomputing.GenericModel import GenericModel, GenericMessage
-
 from paxos.statistics import Statistics
 from paxos.utils import NodeStatus, PaxosEventTypes, PaxosMessageHeader, PaxosMessageTypes, CommandTypes, Command, \
     ALWAYS_SLEEP_LEADER
@@ -50,9 +49,6 @@ class PaxosNode(GenericModel):
         self.promises_received = set()
         self.promoted_entries = []
 
-        # To keep statistics
-        self.time_being_candidate = 0
-
         self.eventhandlers[PaxosEventTypes.PROPOSE] = self.on_propose
         self.eventhandlers[PaxosEventTypes.ACCEPT] = self.on_accept
         self.eventhandlers[PaxosEventTypes.PREPARE] = self.on_prepare
@@ -66,9 +62,7 @@ class PaxosNode(GenericModel):
         Initializes the Paxos node object. First node is initialized as proposer, others as followers.
         """
         self.reset_timer()
-        logger.info(f"{self.node_id} is initialized and its componentinstancenumber is {self.componentinstancenumber}")
         if self.componentinstancenumber == self.number_of_nodes:
-            logger.info(f"{self.node_id} is initialized as proposer in init")
             self.transition_to_candidate()
             self.send_prepare_to_peers()
 
@@ -98,8 +92,6 @@ class PaxosNode(GenericModel):
         given_term = eventobj.eventcontent.payload['term']
 
         vote_granted = False
-        logger.info(
-            f"{self.node_id} received prepare from {eventobj.eventcontent.header.messagefrom}, with term {given_term} while current term is {self.current_term} and promised term is {self.promised_term}")
         if given_term > self.current_term and given_term > self.promised_term:
             self.transition_to_acceptor(given_term)
             vote_granted = True
@@ -117,8 +109,6 @@ class PaxosNode(GenericModel):
         request_vote_response_header = PaxosMessageHeader(PaxosMessageTypes.PROMISE, self.node_id,
                                                           eventobj.eventcontent.header.messagefrom)
         response_message = GenericMessage(request_vote_response_header, prepare_response_payload)
-        logger.info(
-            f"{self.node_id} is sending promise for term {self.current_term} to {eventobj.eventcontent.header.messagefrom} with voteGranted: {vote_granted}")
         self.send_peer(Event(self, PaxosEventTypes.PROMISE, response_message))
 
     def on_promise(self, eventobj: Event):
@@ -133,10 +123,8 @@ class PaxosNode(GenericModel):
             return
         respondent_id = eventobj.eventcontent.header.messagefrom
         if eventobj.eventcontent.payload['voteGranted']:
-            logger.info(f"{self.node_id} received promise from {respondent_id}")
             self.promises_received.add(respondent_id)
             self.merge_promoted_entries(eventobj.eventcontent.payload['entries'])
-            logger.info(f"{self.node_id} reached {len(self.promises_received)} promises")
             if len(self.promises_received) > self.number_of_nodes / 2:
                 self.transition_to_proposer()
 
@@ -172,7 +160,6 @@ class PaxosNode(GenericModel):
             if prev_index is not None and entry.index - prev_index > 1:
                 filler_index = prev_index + 1
                 while filler_index < entry.index:
-                    logger.info(f"filler_index: {filler_index}")
                     no_op_command = Command(0, CommandTypes.NOOP, 0)
                     filler_entry = LogEntry(0, no_op_command, self.node_id, filler_index)
                     final_list.append(filler_entry)
@@ -192,7 +179,6 @@ class PaxosNode(GenericModel):
         """
         self.reset_timer()
         self.current_term += self.node_number
-        logger.info(f"{self.node_id} is sending prepare for term {self.current_term}")
         self.promised_term = self.current_term
         self.promises_received = {self.node_id}
         self.promoted_entries = self.log.entries[self.commit_index + 1:]
@@ -221,8 +207,8 @@ class PaxosNode(GenericModel):
         Helper method to create the payload for the propose message.
         :param peer_id: The ID of the peer to send the propose message to.
         :return: The payload for the propose message as a dictionary, containing current term, previous log index
-         as well as the term of the previous log entry expected to match with receiver's copy of the log,
-         new entries to be sent, and the commit index of the leader.
+        as well as the term of the previous log entry expected to match with receiver's copy of the log,
+        new entries to be sent, and the commit index of the leader.
         """
         next_index_to_send = self.next_index[peer_id]
         for entry in self.log.entries[next_index_to_send:]:
@@ -250,8 +236,6 @@ class PaxosNode(GenericModel):
         if eventobj.eventcontent.payload['entries'] is None:
             self.handle_heartbeat_from_leader(eventobj.eventcontent.payload)
         else:
-            logger.info(
-                f"{self.node_id} received propose from {eventobj.eventcontent.header.messagefrom} with term {eventobj.eventcontent.payload['term']} and prevLogIndex {eventobj.eventcontent.payload['prevLogIndex']} and entries of length {len(eventobj.eventcontent.payload['entries'])}")
             self.reset_timer()
             accept_payload = {
                 'success': self.handle_propose(eventobj.eventcontent.payload),  # boolean result
@@ -314,28 +298,7 @@ class PaxosNode(GenericModel):
 
         # Reply false if log does not contain an entry at prevLogIndex whose term matches prevLogTerm
         if len(self.log.entries) < prev_log_index + 1 or self.log.entries[prev_log_index].term != prev_log_term:
-            logger.info(
-                f"{self.node_id} received propose from {payload['term']} but log does not contain an entry at prevLogIndex whose term matches prevLogTerm")
             return False
-        #
-        # if self.node_number == 2:
-        #     logger.critical(f"{self.node_id} handling propose from {payload['term']} with prevLogIndex {prev_log_index} and prevLogTerm {prev_log_term} its len is {len(self.log.entries)} and obtained entries are {[str(entry) for entry in self.log.entries]}")
-        # # If an existing entry coming after prev_log_index conflicts with a new one, delete the one from older term
-        # start_index = prev_log_index
-        # offset = 1
-        # if start_index + offset < len(self.log.entries) and self.log.entries[start_index + offset] is not None and offset < len(given_entries):
-        #     given_entry = given_entries[offset - 1]
-        #     conflicting_entry_term = self.log.entries[given_entry.index].term
-        #     if conflicting_entry_term != given_entry.term:
-        #         self.log.truncate(prev_log_index + offset)
-        #         self.log.append_entry(given_entry)
-        #     offset += 1
-        #     if offset == len(given_entries):
-        #         return True
-        # # Append new entries
-        # if self.node_number == 2:
-        #     logger.critical(f"{self.node_id} is appending entries {[str(entry) for entry in given_entries[offset - 1:]]} while having log entries {[str(entry) for entry in self.log.entries]}")
-        # self.log.append_entries(given_entries[(offset - 1):])
 
         if prev_log_index + 1 < len(self.log.entries) and self.log.entries[prev_log_index + 1] is not None:
             self.log.truncate(prev_log_index + 1)
@@ -376,8 +339,6 @@ class PaxosNode(GenericModel):
         entry_index = eventobj.eventcontent.payload['index']
         if eventobj.eventcontent.payload['success']:
             # Ignore if response is for an outdated entry
-            logger.info(
-                f"Proposer {self.node_id} received accept from {eventobj.eventcontent.header.messagefrom} with term {respondent_term} and index {entry_index} while next_index is {self.next_index}")
             if entry_index <= self.match_index[respondent_id]:
                 return
             self.match_index[respondent_id] = entry_index
@@ -397,27 +358,21 @@ class PaxosNode(GenericModel):
         Commits the entries that are replicated by majority of the nodes. After that, it applies the new commits to the
         state machine as leader and send response to the client if needed.
         """
-        logger.info(
-            f"{self.node_id} is committing entries while last_log_committed is {self.commit_index} and len(self.log.entries) is {len(self.log.entries)}")
         # Finds uncommitted commands with current term that are replicated by majority
         last_log_committed = self.commit_index
         for index in range(self.commit_index + 1, len(self.log.entries)):
-            logger.info(
-                f"Checking index {index} while it has matches of {sum(1 for peer_id in self.get_peer_ids() if self.match_index[peer_id] >= index) + 1}")
             if self.log.entries[index].term == self.current_term:
                 if sum(1 for peer_id in self.get_peer_ids() if
                        self.match_index[peer_id] >= index) + 1 > self.number_of_nodes / 2:
                     self.commit_index = index
         # Applies new commits to state machine as leader and updates last applied index
         if self.commit_index > last_log_committed:
-            logger.info(
-                f"{self.node_id} may apply entries while last_log_committed is {last_log_committed} and len(self.log.entries) is {len(self.log.entries)}")
             for index in range(last_log_committed + 1, self.commit_index + 1):
                 self.apply_command(self.log.entries[index].command)
                 self.last_applied = index
             self.send_heartbeat_to_peers()
             self.send_client_response()
-            self.promoted_entries = []  # TODO keep non-applied entries for future
+            self.promoted_entries = []  # TODO keep non-applied entries for future ?
 
     # CLIENT RELATED EVENTS
     def on_client_request(self, eventobj: Event):
@@ -458,7 +413,7 @@ class PaxosNode(GenericModel):
     def transition_to_proposer(self):
         if self.current_term != self.number_of_nodes:
             Statistics.increment_leader_changes()
-            Statistics.add_time_during_election(time.time() - self.time_being_candidate)
+            Statistics.add_time_during_election()
         logger.error(f"{self.node_id} is transitioning to leader")
         self.state = NodeStatus.PROPOSER
         peer_ids = self.get_peer_ids()
@@ -468,17 +423,16 @@ class PaxosNode(GenericModel):
         self.send_client_response()
 
     def transition_to_candidate(self):
-        logger.info(f"{self.node_id} is transitioning to candidate")
         self.state = NodeStatus.CANDIDATE
         self.reset_timer()
-        self.time_being_candidate = time.time()
+        if self.current_term > self.number_of_nodes:
+            Statistics.start_time_for_election()
 
     def transition_to_follower(self):
         self.state = NodeStatus.FOLLOWER
         self.reset_timer()
 
     def transition_to_acceptor(self, given_term):
-        logger.info(f"{self.node_id} is transitioning to acceptor for term {given_term}")
         self.promised_term = given_term
         self.state = NodeStatus.ACCEPTOR
         self.reset_timer()
@@ -491,8 +445,6 @@ class PaxosNode(GenericModel):
         if self.state == NodeStatus.PROPOSER:
             self.send_heartbeat_to_peers()
         elif self.state == NodeStatus.FOLLOWER and self.is_timeout() and self.promised_term <= self.current_term:
-            logger.info(
-                f"{self.node_id} is transitioning to candidate because timeout is reached with a time of {time.time() - self.last_timer_reset_time}")
             self.transition_to_candidate()
         elif self.state == NodeStatus.CANDIDATE and self.is_timeout() > self.timeout:
             self.send_prepare_to_peers()

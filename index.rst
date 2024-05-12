@@ -13,17 +13,4 @@
    :caption: Contents
 
    docs/paxos/paxos
-   docs/rubric
    docs/paxos/code
-
-.. ATTENTION::
-   For RST details, please refer to `reStructuredText Documentation <https://docutils.sourceforge.io/rst.html>`_.
-
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
